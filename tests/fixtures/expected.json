@@ -1,0 +1,8 @@
+{
+  "xhe-aac-speech.m4a": {
+    "silences": 3,
+    "input_args": ["-c:a", "libfdk_aac", "-drc_level", "-2"],
+    "native_decoder_fails": true,
+    "seek_points": [5.3, 13.7, 22.1, 30.0]
+  }
+}

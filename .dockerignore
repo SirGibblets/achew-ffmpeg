@@ -1,0 +1,6 @@
+.git
+out
+work
+sources
+dist
+tests/fixtures/generated

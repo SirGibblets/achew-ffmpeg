@@ -1,0 +1,148 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: linux-x86_64, runner: ubuntu-24.04 }
+          - { target: linux-aarch64, runner: ubuntu-24.04-arm }
+          - { target: windows-x86_64, runner: ubuntu-24.04 }
+          - { target: macos-arm64, runner: macos-15 }
+          # Cross-compiled on Apple Silicon
+          - { target: macos-x86_64, runner: macos-15 }
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build (Linux, static musl)
+        if: startsWith(matrix.target, 'linux-')
+        run: docker build -f build/linux.Dockerfile --build-arg TARGET=${{ matrix.target }} --output out/${{ matrix.target }} .
+
+      - name: Build (Windows, mingw-w64 cross)
+        if: startsWith(matrix.target, 'windows-')
+        run: docker build -f build/windows.Dockerfile --output out/${{ matrix.target }} .
+
+      - name: Build (macOS)
+        if: startsWith(matrix.target, 'macos-')
+        run: |
+          brew install nasm
+          build/build.sh ${{ matrix.target }}
+
+      - name: Build wheel
+        run: python3 packaging/build_wheel.py out/${{ matrix.target }} dist/wheels
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.target }}
+          path: dist/wheels/*.whl
+          if-no-files-found: error
+
+  fixtures:
+    name: Generate fixtures
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install reference ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - run: tests/make_fixtures.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fixtures
+          path: tests/fixtures/generated
+          if-no-files-found: error
+
+  test:
+    name: Test ${{ matrix.target }}
+    needs: [build, fixtures]
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: linux-x86_64, runner: ubuntu-24.04 }
+          - { target: linux-aarch64, runner: ubuntu-24.04-arm }
+          - { target: windows-x86_64, runner: windows-2025 }
+          - { target: macos-arm64, runner: macos-15 }
+          - { target: macos-x86_64, runner: macos-15-intel }
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheel-${{ matrix.target }}
+          path: wheel
+      - uses: actions/download-artifact@v4
+        with:
+          name: fixtures
+          path: tests/fixtures/generated
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install wheel and run smoke tests
+        shell: bash
+        run: |
+          python -m venv venv
+          if [ -d venv/Scripts ]; then py=venv/Scripts/python; else py=venv/bin/python; fi
+          "$py" -m pip install --no-index wheel/*.whl
+          "$py" -m achew_ffmpeg
+          "$py" tests/smoke.py
+
+      # The same wheel must install and run on musl distros (musllinux tag)
+      - name: Smoke tests on Alpine
+        if: startsWith(matrix.target, 'linux-')
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work python:3.12-alpine sh -c \
+            'pip install --root-user-action=ignore --no-index wheel/*.whl && python -m achew_ffmpeg && python tests/smoke.py'
+
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-*
+          path: dist/wheels
+          merge-multiple: true
+
+      - name: Check tag matches versions.env
+        run: |
+          . ./versions.env
+          test "$GITHUB_REF_NAME" = "v$PACKAGE_VERSION" || {
+            echo "tag $GITHUB_REF_NAME does not match PACKAGE_VERSION $PACKAGE_VERSION" >&2
+            exit 1
+          }
+
+      # LGPL and the FDK license both require offering the complete source
+      - name: Source archives
+        run: build/fetch-sources.sh --archive
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          (cd dist && sha256sum wheels/*.whl sources/* | sed 's| [^ ]*/| |' > SHA256SUMS)
+          python3 packaging/release_notes.py dist/wheels "$GITHUB_REF_NAME" > notes.md
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --notes-file notes.md \
+            dist/wheels/*.whl dist/sources/* dist/SHA256SUMS

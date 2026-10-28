@@ -1,0 +1,8 @@
+/out/
+/work/
+/sources/
+/dist/
+/tests/fixtures/generated/
+__pycache__/
+.DS_Store
+/logs/

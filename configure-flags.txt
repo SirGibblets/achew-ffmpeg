@@ -1,0 +1,54 @@
+# Lean, audio-only FFmpeg component set for achew, shared by every target.
+# Per-target toolchain flags live in build/build.sh. One flag per line; text
+# after # is ignored.
+#
+# Anything removed here must still pass tests/smoke.py, which replays the
+# ffmpeg commands achew (and the ASR libraries it calls) actually run.
+#
+# Never add --enable-gpl or --enable-nonfree: libfdk_aac is only
+# redistributable in an LGPL build, and build.sh fails the build if configure
+# reports any other license.
+
+--disable-everything
+--disable-autodetect
+--disable-network
+--disable-doc
+--disable-debug
+--disable-ffplay
+--disable-ffprobe
+--disable-avdevice
+--disable-swscale
+--disable-iconv
+
+--enable-zlib
+--enable-libfdk-aac
+
+--enable-protocol=file,pipe
+
+# Containers achew accepts, plus the concat demuxer for multi-file books
+--enable-demuxer=aac,ac3,aiff,asf,caf,concat,eac3,flac,matroska,mov,mp3,ogg,wav
+
+# libfdk_aac decodes xHE-AAC (USAC), including the speech-mode (LPD) frames
+# that FFmpeg's native aac decoder rejects
+--enable-decoder=aac,libfdk_aac,ac3,eac3,alac,flac,mp2,mp2float,mp3,mp3float,opus,vorbis,wmav1,wmav2,wmapro,pcm_*
+
+# Cover art: ffmpeg probes attached pictures even when only stream-copying them
+--enable-decoder=mjpeg,png
+
+--enable-parser=aac,aac_latm,ac3,flac,mjpeg,mpegaudio,opus,png,vorbis
+
+# PCM and FLAC for analysis segments, AAC-LC for the browser playback fallback
+--enable-encoder=aac,flac,pcm_*
+# The null muxer's default for video: `-f null` with no -map/-vn also "encodes"
+# the cover art, as achew's full-file silencedetect does
+--enable-encoder=wrapped_avframe
+
+# One stream-copy output container per input container (matroska_audio is .mka),
+# raw PCM pipes for the ASR libraries (pcm_f32le is `-f f32le`), and the
+# segment muxer
+--enable-muxer=ac3,adts,aiff,asf,caf,eac3,flac,ipod,matroska,matroska_audio,mov,mp3,mp4,null,ogg,opus,segment,wav
+--enable-muxer=pcm_f32le,pcm_s16le
+
+--enable-bsf=aac_adtstoasc
+
+--enable-filter=aformat,anull,aresample,atrim,silencedetect,volumedetect
