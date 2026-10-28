@@ -29,7 +29,7 @@ jobs:
           # Cross-compiled on Apple Silicon
           - { target: macos-x86_64, runner: macos-15 }
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Build (Linux, static musl)
         if: startsWith(matrix.target, 'linux-')
@@ -48,7 +48,7 @@ jobs:
       - name: Build wheel
         run: python3 packaging/build_wheel.py out/${{ matrix.target }} dist/wheels
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: wheel-${{ matrix.target }}
           path: dist/wheels/*.whl
@@ -58,11 +58,11 @@ jobs:
     name: Generate fixtures
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Install reference ffmpeg
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       - run: tests/make_fixtures.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: fixtures
           path: tests/fixtures/generated
@@ -82,16 +82,16 @@ jobs:
           - { target: macos-arm64, runner: macos-15 }
           - { target: macos-x86_64, runner: macos-15-intel }
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           name: wheel-${{ matrix.target }}
           path: wheel
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: fixtures
           path: tests/fixtures/generated
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -119,8 +119,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           pattern: wheel-*
           path: dist/wheels
